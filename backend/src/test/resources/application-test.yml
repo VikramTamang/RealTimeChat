@@ -1,0 +1,35 @@
+server:
+  port: 0
+
+spring:
+  threads:
+    virtual:
+      enabled: true
+
+  datasource:
+    url: jdbc:h2:mem:testchatdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+chat:
+  jwt:
+    secret: dGhpcy1pcy1hLXZlcnktc2VjdXJlLWFuZC1sb25nLWp3dC1zZWNyZXQta2V5LWZvci1jaGF0LWFwcGxpY2F0aW9uLTIwMjY=
+    expiration-ms: 3600000
+  presence:
+    ttl-seconds: 10
+  instance-id: test-node

@@ -1,0 +1,5 @@
+com\chat\security\JwtTokenProviderTest.class
+com\chat\service\PresenceServiceTest.class
+com\chat\service\RoomServiceTest.class
+com\chat\security\TopicSubscriptionInterceptorTest.class
+com\chat\service\MessageServiceTest.class
