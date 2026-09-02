@@ -1,10 +1,10 @@
-# 🚀 Real-Time Chat & Messaging Platform (Spring Boot & MySQL)
+#  Real-Time Chat & Messaging Platform (Spring Boot & MySQL)
 
 A high-performance real-time chat application built with **Spring Boot 3.5.x**, **Java 21 (Virtual Threads)**, **Spring WebSocket (STOMP)**, **MySQL & JPA**, **JWT Security**, and a modern **Angular Standalone** frontend.
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -33,7 +33,7 @@ A high-performance real-time chat application built with **Spring Boot 3.5.x**, 
 
 ---
 
-## 🧠 Core Engineering Features
+##  Core Engineering Features
 
 ### 1. STOMP over Raw WebSockets
 Spring's STOMP broker abstraction provides:
@@ -55,7 +55,7 @@ Spring's STOMP broker abstraction provides:
 
 ---
 
-## 📡 STOMP Destinations Reference
+##  STOMP Destinations Reference
 
 | Destination | Direction | Payload | Purpose |
 |---|---|---|---|
@@ -70,7 +70,7 @@ Spring's STOMP broker abstraction provides:
 
 ---
 
-## 🌐 REST API Reference
+##  REST API Reference
 
 | Method | Path | Description |
 |---|---|---|
@@ -89,7 +89,7 @@ Spring's STOMP broker abstraction provides:
 
 ---
 
-## 🚀 How to Run Locally
+##  How to Run Locally
 
 ### 1. Configure MySQL
 Make sure MySQL is running locally on port `3306`.
