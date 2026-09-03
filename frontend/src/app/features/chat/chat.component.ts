@@ -1,7 +1,18 @@
-import { Component, OnInit, OnDestroy, signal, computed, ViewChild, ElementRef, AfterViewChecked, inject } from '@angular/core';
+import { 
+  Component, 
+  OnInit, 
+  OnDestroy, 
+  signal, 
+  computed, 
+  ViewChild, 
+  ElementRef, 
+  AfterViewChecked, 
+  inject
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
 import { ChatService } from '../../core/chat.service';
@@ -10,145 +21,235 @@ import { Room, CreateRoomRequest } from '../../models/room.model';
 import { ChatMessage, PageResponse, TypingEvent } from '../../models/message.model';
 import { User } from '../../models/user.model';
 
+interface Toast {
+  id: string;
+  type: 'success' | 'error' | 'info';
+  message: string;
+}
+
 @Component({
   selector: 'app-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
-    <div class="chat-app-layout">
-      <!-- SIDEBAR -->
-      <aside class="chat-sidebar">
-        <!-- User Profile Bar -->
-        <div class="sidebar-header">
-          <div class="user-profile-info">
-            <div class="user-avatar gradient-avatar">
+    <div class="chat-workspace-layout" [class.mobile-view-chat]="isMobile() && currentRoom()">
+      <!-- 1. WORKSPACE RAIL -->
+      <nav class="workspace-rail">
+        <div class="rail-top">
+          <a routerLink="/" class="rail-brand-logo" title="PulseChat Home">
+            <div class="brand-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+              </svg>
+            </div>
+          </a>
+
+          <div class="rail-divider"></div>
+
+          <button 
+            class="rail-btn" 
+            [class.active]="activeTab() === 'channels'" 
+            (click)="activeTab.set('channels')" 
+            title="Channels">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="4" y1="9" x2="20" y2="9"></line>
+              <line x1="4" y1="15" x2="20" y2="15"></line>
+              <line x1="10" y1="3" x2="8" y2="21"></line>
+              <line x1="16" y1="3" x2="14" y2="21"></line>
+            </svg>
+            <span class="rail-tooltip">Channels</span>
+            @if (myGroupRooms().length > 0) {
+              <span class="rail-counter">{{ myGroupRooms().length }}</span>
+            }
+          </button>
+
+          <button 
+            class="rail-btn" 
+            [class.active]="activeTab() === 'direct'" 
+            (click)="activeTab.set('direct')" 
+            title="Direct Messages">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span class="rail-tooltip">Direct Messages</span>
+            @if (myDirectRooms().length > 0) {
+              <span class="rail-counter">{{ myDirectRooms().length }}</span>
+            }
+          </button>
+
+          <button 
+            class="rail-btn" 
+            [class.active]="activeTab() === 'explore'" 
+            (click)="loadPublicRooms(); activeTab.set('explore')" 
+            title="Explore Rooms">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+            </svg>
+            <span class="rail-tooltip">Explore Rooms</span>
+          </button>
+        </div>
+
+        <div class="rail-bottom">
+          <button class="rail-profile-btn" (click)="showProfileModal.set(true)" title="My Profile & Settings">
+            <div class="avatar avatar-sm avatar-gradient-1">
               {{ getUserInitial(currentUser()?.username) }}
               <span class="status-dot online"></span>
             </div>
-            <div class="user-details">
-              <span class="user-name">{{ currentUser()?.username }}</span>
-              <span class="user-status-text">Connected</span>
-            </div>
-          </div>
-          <button class="btn-icon" (click)="logout()" title="Logout">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <span class="rail-tooltip">{{ currentUser()?.username }}</span>
+          </button>
+
+          <button class="rail-btn logout-btn" (click)="logout()" title="Logout">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
               <polyline points="16 17 21 12 16 7"></polyline>
               <line x1="21" y1="12" x2="9" y2="12"></line>
             </svg>
+            <span class="rail-tooltip">Logout</span>
           </button>
         </div>
+      </nav>
 
-        <!-- Connection Status Banner -->
-        <div class="connection-status-pill" [class.connected]="chatService.isConnected()">
-          <span class="status-dot" [class.online]="chatService.isConnected()" [class.offline]="!chatService.isConnected()"></span>
-          <span>{{ chatService.isConnected() ? 'STOMP & Redis Online' : 'Connecting to cluster...' }}</span>
+      <!-- 2. CONVERSATIONS SIDEBAR -->
+      <aside class="conversations-sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title-row">
+            <h2>
+              @if (activeTab() === 'channels') { Channels }
+              @else if (activeTab() === 'direct') { Direct Messages }
+              @else { Explore Rooms }
+            </h2>
+
+            @if (activeTab() === 'channels') {
+              <button class="btn-icon btn-sm action-add-btn" (click)="showCreateRoomModal.set(true)" title="Create Channel">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+            } @else if (activeTab() === 'direct') {
+              <button class="btn-icon btn-sm action-add-btn" (click)="showUserSearchModal.set(true)" title="New Direct Message">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+            }
+          </div>
+
+          <div class="sidebar-search-box">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input 
+              type="text" 
+              class="sidebar-search-input" 
+              [(ngModel)]="sidebarSearchQuery" 
+              placeholder="Search conversations..." />
+            @if (sidebarSearchQuery) {
+              <button class="clear-search-btn" (click)="sidebarSearchQuery = ''">✕</button>
+            }
+          </div>
+
+          <div class="connection-status-pill" [class.connected]="chatService.isConnected()">
+            <span class="status-dot" [class.online]="chatService.isConnected()" [class.offline]="!chatService.isConnected()"></span>
+            <span class="status-label">{{ chatService.isConnected() ? 'STOMP Cluster Connected' : 'Connecting...' }}</span>
+          </div>
         </div>
 
-        <!-- Sidebar Navigation Tabs -->
-        <div class="sidebar-tabs">
-          <button 
-            class="tab-link" 
-            [class.active]="activeTab() === 'channels'" 
-            (click)="activeTab.set('channels')">
-            Channels
-          </button>
-          <button 
-            class="tab-link" 
-            [class.active]="activeTab() === 'direct'" 
-            (click)="activeTab.set('direct')">
-            Direct Messages
-          </button>
-          <button 
-            class="tab-link" 
-            [class.active]="activeTab() === 'explore'" 
-            (click)="loadPublicRooms(); activeTab.set('explore')">
-            Explore
-          </button>
-        </div>
-
-        <!-- Action Buttons -->
-        <div class="sidebar-actions">
+        <div class="conversations-scroll-list">
+          <!-- CHANNELS TAB -->
           @if (activeTab() === 'channels') {
-            <button class="btn btn-secondary btn-sm w-full" (click)="showCreateRoomModal.set(true)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              New Channel
-            </button>
-          } @else if (activeTab() === 'direct') {
-            <button class="btn btn-secondary btn-sm w-full" (click)="showUserSearchModal.set(true)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-              New Direct Message
-            </button>
-          }
-        </div>
-
-        <!-- Room / User List -->
-        <div class="sidebar-list">
-          @if (activeTab() === 'channels') {
-            @for (room of myGroupRooms(); track room.id) {
+            @for (room of filteredGroupRooms(); track room.id) {
               <div 
-                class="list-item room-item" 
+                class="conversation-row channel-row" 
                 [class.active]="currentRoom()?.id === room.id" 
                 (click)="selectRoom(room)">
-                <div class="item-icon-box">#</div>
-                <div class="item-content">
-                  <div class="item-title">{{ room.name }}</div>
-                  <div class="item-subtitle">{{ room.lastMessage?.content || room.description || 'No messages yet' }}</div>
+                <div class="channel-icon-tag">#</div>
+                <div class="row-main-content">
+                  <div class="row-title-row">
+                    <span class="row-name">{{ room.name }}</span>
+                    <span class="row-badge">{{ room.memberCount }}</span>
+                  </div>
+                  <p class="row-last-msg">
+                    @if (room.lastMessage) {
+                      <span class="msg-sender">{{ room.lastMessage.senderUsername }}:</span>
+                      {{ room.lastMessage.content }}
+                    } @else {
+                      {{ room.description || 'No messages yet' }}
+                    }
+                  </p>
                 </div>
-                <div class="item-badge">{{ room.memberCount }}</div>
               </div>
             } @empty {
-              <div class="empty-state">
-                <p>No joined channels yet.</p>
-                <button class="btn-text" (click)="activeTab.set('explore')">Browse public channels</button>
+              <div class="empty-list-state">
+                <div class="empty-icon">#</div>
+                <p>No channels found.</p>
+                <button class="btn btn-secondary btn-xs" (click)="showCreateRoomModal.set(true)">Create Channel</button>
               </div>
             }
-          } @else if (activeTab() === 'direct') {
-            @for (room of myDirectRooms(); track room.id) {
+          }
+
+          <!-- DIRECT MESSAGES TAB -->
+          @else if (activeTab() === 'direct') {
+            @for (room of filteredDirectRooms(); track room.id) {
               <div 
-                class="list-item dm-item" 
+                class="conversation-row dm-row" 
                 [class.active]="currentRoom()?.id === room.id" 
                 (click)="selectRoom(room)">
-                <div class="user-avatar small-avatar">
+                <div class="avatar avatar-sm avatar-gradient-2">
                   {{ getUserInitial(room.name) }}
                   @if (isOtherUserOnline(room)) {
                     <span class="status-dot online"></span>
+                  } @else {
+                    <span class="status-dot offline"></span>
                   }
                 </div>
-                <div class="item-content">
-                  <div class="item-title">{{ room.name }}</div>
-                  <div class="item-subtitle">{{ room.lastMessage?.content || 'Direct conversation' }}</div>
+                <div class="row-main-content">
+                  <div class="row-title-row">
+                    <span class="row-name">{{ room.name }}</span>
+                    @if (room.lastMessage) {
+                      <span class="row-time">{{ formatTime(room.lastMessage.createdAt) }}</span>
+                    }
+                  </div>
+                  <p class="row-last-msg">
+                    {{ room.lastMessage?.content || 'Direct conversation' }}
+                  </p>
                 </div>
               </div>
             } @empty {
-              <div class="empty-state">
-                <p>No active conversations.</p>
-                <button class="btn-text" (click)="showUserSearchModal.set(true)">Find someone to chat with</button>
+              <div class="empty-list-state">
+                <div class="empty-icon">💬</div>
+                <p>No direct conversations.</p>
+                <button class="btn btn-secondary btn-xs" (click)="showUserSearchModal.set(true)">Find Someone</button>
               </div>
             }
-          } @else {
-            <!-- Explore Public Rooms -->
-            @for (room of publicRooms(); track room.id) {
-              <div class="list-item explore-item">
-                <div class="item-icon-box">🌐</div>
-                <div class="item-content">
-                  <div class="item-title">{{ room.name }}</div>
-                  <div class="item-subtitle">{{ room.description || 'Public channel' }} • {{ room.memberCount }} members</div>
+          }
+
+          <!-- EXPLORE PUBLIC ROOMS TAB -->
+          @else {
+            @for (room of filteredPublicRooms(); track room.id) {
+              <div class="conversation-row explore-row">
+                <div class="channel-icon-tag explore-tag">🌐</div>
+                <div class="row-main-content">
+                  <div class="row-title-row">
+                    <span class="row-name">{{ room.name }}</span>
+                    <span class="row-badge">{{ room.memberCount }} members</span>
+                  </div>
+                  <p class="row-last-msg">{{ room.description || 'Public channel' }}</p>
                 </div>
-                @if (isAlreadyMember(room.id)) {
-                  <button class="btn btn-secondary btn-xs" (click)="selectRoom(room)">Open</button>
-                } @else {
-                  <button class="btn btn-primary btn-xs" (click)="joinRoom(room)">Join</button>
-                }
+                <div class="explore-action">
+                  @if (isAlreadyMember(room.id)) {
+                    <button class="btn btn-secondary btn-xs" (click)="selectRoom(room); activeTab.set('channels')">Open</button>
+                  } @else {
+                    <button class="btn btn-primary btn-xs" (click)="joinRoom(room)">Join</button>
+                  }
+                </div>
               </div>
             } @empty {
-              <div class="empty-state">
+              <div class="empty-list-state">
+                <div class="empty-icon">🌐</div>
                 <p>No public channels found.</p>
               </div>
             }
@@ -156,136 +257,276 @@ import { User } from '../../models/user.model';
         </div>
       </aside>
 
-      <!-- MAIN CHAT AREA -->
-      <main class="chat-main">
+      <!-- 3. MAIN CHAT AREA -->
+      <main class="chat-main-area">
         @if (currentRoom()) {
           <!-- Chat Header -->
-          <header class="chat-header">
-            <div class="header-room-info">
-              <div class="header-icon">
+          <header class="chat-header glass-panel">
+            <div class="header-left">
+              <button class="btn-icon mobile-back-btn" (click)="currentRoom.set(null)" title="Back to list">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+              </button>
+
+              <div class="header-avatar-box">
                 @if (currentRoom()?.isGroup) {
-                  <span>#</span>
+                  <div class="channel-header-icon">#</div>
                 } @else {
-                  <div class="user-avatar small-avatar">
+                  <div class="avatar avatar-sm avatar-gradient-3">
                     {{ getUserInitial(currentRoom()?.name) }}
                     @if (isOtherUserOnline(currentRoom()!)) {
                       <span class="status-dot online"></span>
+                    } @else {
+                      <span class="status-dot offline"></span>
                     }
                   </div>
                 }
               </div>
-              <div>
-                <h2>{{ currentRoom()?.name }}</h2>
-                <span class="header-sub">
+
+              <div class="header-details">
+                <div class="header-title-row">
+                  <h2>{{ currentRoom()?.name }}</h2>
                   @if (currentRoom()?.isGroup) {
-                    {{ currentRoom()?.description || 'Public Group Room' }} • {{ currentRoom()?.memberCount }} members
+                    <span class="badge badge-brand">{{ currentRoom()?.memberCount }} members</span>
                   } @else {
-                    {{ isOtherUserOnline(currentRoom()!) ? 'Online' : 'Offline' }} • 1:1 Direct Message
+                    <span class="badge" [class.badge-emerald]="isOtherUserOnline(currentRoom()!)" [class.badge-brand]="!isOtherUserOnline(currentRoom()!)">
+                      {{ isOtherUserOnline(currentRoom()!) ? 'Online' : 'Offline' }}
+                    </span>
                   }
-                </span>
+                </div>
+                <p class="header-subtitle">
+                  @if (currentRoom()?.isGroup) {
+                    {{ currentRoom()?.description || 'Public Channel • Real-time STOMP topic' }}
+                  } @else {
+                    Direct 1-on-1 messaging queue
+                  }
+                </p>
               </div>
             </div>
 
-            <div class="header-right-badges">
-              <div class="cluster-badge">
-                <span class="badge-dot"></span> Redis Fan-Out Active
-              </div>
+            <div class="header-right">
+              <button 
+                class="btn-icon" 
+                [class.active-btn]="showDetailsDrawer()" 
+                (click)="toggleDetailsDrawer()" 
+                title="Room Details & Members">
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
+              </button>
             </div>
           </header>
 
           <!-- Messages Scrollable Thread -->
-          <div class="messages-container" #messagesContainer>
+          <div class="messages-container" #messagesContainer (scroll)="onMessagesScroll($event)">
             @if (hasMoreMessages()) {
-              <div class="load-more-wrapper">
-                <button class="btn btn-secondary btn-sm" (click)="loadOlderMessages()" [disabled]="isLoadingMore()">
-                  {{ isLoadingMore() ? 'Loading...' : '↑ Load older messages' }}
+              <div class="load-older-banner">
+                <button class="btn btn-secondary btn-xs" (click)="loadOlderMessages()" [disabled]="isLoadingMore()">
+                  @if (isLoadingMore()) {
+                    <span class="spinner-xs"></span> Loading history...
+                  } @else {
+                    <span>↑ Load older messages</span>
+                  }
                 </button>
               </div>
             }
 
-            <div class="messages-list">
+            <div class="messages-stream">
               @for (msg of messages(); track msg.id || msg.createdAt) {
-                <div 
-                  class="message-bubble-wrapper" 
-                  [class.outgoing]="msg.senderId === currentUser()?.id" 
-                  [class.incoming]="msg.senderId !== currentUser()?.id">
-                  
-                  @if (msg.senderId !== currentUser()?.id) {
-                    <div class="msg-avatar">
-                      {{ getUserInitial(msg.senderUsername) }}
-                    </div>
-                  }
-
-                  <div class="message-body">
-                    @if (msg.senderId !== currentUser()?.id && currentRoom()?.isGroup) {
-                      <span class="msg-sender-name">{{ msg.senderUsername }}</span>
-                    }
-                    <div class="msg-bubble">
-                      <p class="msg-text">{{ msg.content }}</p>
-                      <span class="msg-timestamp">{{ formatTime(msg.createdAt) }}</span>
+                @if (msg.type === 'JOIN' || msg.type === 'LEAVE') {
+                  <div class="system-message-row">
+                    <div class="system-message-pill">
+                      <span>{{ msg.content }}</span>
+                      <span class="system-time">{{ formatTime(msg.createdAt) }}</span>
                     </div>
                   </div>
-                </div>
+                } @else {
+                  <div 
+                    class="message-row" 
+                    [class.outgoing]="msg.senderId === currentUser()?.id" 
+                    [class.incoming]="msg.senderId !== currentUser()?.id">
+                    
+                    @if (msg.senderId !== currentUser()?.id) {
+                      <div class="avatar avatar-sm avatar-gradient-4">
+                        {{ getUserInitial(msg.senderUsername) }}
+                      </div>
+                    }
+
+                    <div class="message-content-group">
+                      @if (msg.senderId !== currentUser()?.id && currentRoom()?.isGroup) {
+                        <span class="message-sender-label">{{ msg.senderUsername }}</span>
+                      }
+                      
+                      <div class="message-bubble">
+                        <p class="message-text">{{ msg.content }}</p>
+                        <span class="message-meta-time">{{ formatTime(msg.createdAt) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                }
               } @empty {
-                <div class="empty-messages-placeholder">
-                  <div class="placeholder-icon">💬</div>
-                  <h3>Welcome to {{ currentRoom()?.name }}!</h3>
-                  <p>Send the first message to start the conversation.</p>
+                <div class="empty-conversation-state">
+                  <div class="empty-conversation-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                  </div>
+                  <h3>Welcome to {{ currentRoom()?.name }}</h3>
+                  <p>This is the start of your real-time conversation. Send a message below to get started!</p>
                 </div>
               }
             </div>
 
-            <!-- Typing Indicator Bubble -->
             @if (currentTypingUser()) {
-              <div class="typing-indicator-bar">
+              <div class="live-typing-bar">
                 <div class="typing-dots">
                   <span></span><span></span><span></span>
                 </div>
                 <span><strong>{{ currentTypingUser() }}</strong> is typing...</span>
               </div>
             }
+
+            @if (showScrollBottomBtn()) {
+              <button class="scroll-bottom-fab" (click)="scrollToBottom(true)" title="Jump to latest messages">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <polyline points="19 12 12 19 5 12"></polyline>
+                </svg>
+              </button>
+            }
           </div>
 
-          <!-- Message Composer Input -->
-          <footer class="chat-input-area">
+          <!-- Message Composer Bar -->
+          <footer class="composer-container glass-panel">
+            <div class="composer-toolbar">
+              <div class="quick-emojis">
+                <button type="button" class="emoji-chip" (click)="appendEmoji('👍')">👍</button>
+                <button type="button" class="emoji-chip" (click)="appendEmoji('🔥')">🔥</button>
+                <button type="button" class="emoji-chip" (click)="appendEmoji('🎉')">🎉</button>
+                <button type="button" class="emoji-chip" (click)="appendEmoji('❤️')">❤️</button>
+                <button type="button" class="emoji-chip" (click)="appendEmoji('⚡')">⚡</button>
+                <button type="button" class="emoji-chip" (click)="appendEmoji('🚀')">🚀</button>
+              </div>
+              <span class="composer-hint">Press <strong>Enter</strong> to send • <strong>Shift+Enter</strong> for newline</span>
+            </div>
+
             <form (ngSubmit)="sendMessage()" class="composer-form">
-              <input 
-                type="text" 
-                class="form-input composer-input" 
+              <textarea 
+                class="composer-textarea" 
                 [(ngModel)]="messageText" 
                 name="messageText" 
+                (keydown)="onComposerKeyDown($event)"
                 (ngModelChange)="onTypingChange()" 
-                placeholder="Type a message to {{ currentRoom()?.name }}..." 
-                autocomplete="off" />
+                [placeholder]="'Message ' + (currentRoom()?.isGroup ? '#' : '@') + (currentRoom()?.name || '') + '...'" 
+                rows="1"
+                #composerTextarea></textarea>
 
-              <button type="submit" class="btn btn-primary send-btn" [disabled]="!messageText.trim()">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <button 
+                type="submit" 
+                class="btn btn-primary send-action-btn" 
+                [disabled]="!messageText.trim()">
+                <span>Send</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                   <line x1="22" y1="2" x2="11" y2="13"></line>
                   <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                 </svg>
-                <span>Send</span>
               </button>
             </form>
           </footer>
         } @else {
-          <!-- Empty State: No room selected -->
-          <div class="no-room-selected">
-            <div class="no-room-card glass-panel">
-              <div class="logo-badge large">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          <!-- Empty State: No room active -->
+          <div class="empty-workspace-state">
+            <div class="empty-workspace-card glass-panel">
+              <div class="brand-icon large-icon">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
                 </svg>
               </div>
-              <h2>Select a channel or conversation</h2>
-              <p>Join an active channel on the sidebar or start a 1:1 direct message.</p>
-              <div class="quick-action-buttons">
-                <button class="btn btn-primary" (click)="showCreateRoomModal.set(true)">Create Channel</button>
-                <button class="btn btn-secondary" (click)="activeTab.set('explore'); loadPublicRooms()">Browse Public Rooms</button>
+              <h2>Select a channel or direct conversation</h2>
+              <p>Join a real-time topic channel on the sidebar, start a direct message with a team member, or explore open public rooms.</p>
+              
+              <div class="empty-action-row">
+                <button class="btn btn-primary" (click)="showCreateRoomModal.set(true)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                  <span>New Channel</span>
+                </button>
+                <button class="btn btn-secondary" (click)="showUserSearchModal.set(true)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  <span>Direct Message</span>
+                </button>
               </div>
             </div>
           </div>
         }
       </main>
+
+      <!-- 4. RIGHT DETAILS & MEMBER DRAWER -->
+      @if (currentRoom() && showDetailsDrawer()) {
+        <aside class="details-drawer glass-panel">
+          <div class="drawer-header">
+            <h3>Room Details</h3>
+            <button class="btn-icon btn-sm" (click)="showDetailsDrawer.set(false)">✕</button>
+          </div>
+
+          <div class="drawer-content">
+            <div class="drawer-overview-card">
+              <div class="drawer-avatar-large">
+                @if (currentRoom()?.isGroup) {
+                  <span>#</span>
+                } @else {
+                  {{ getUserInitial(currentRoom()?.name) }}
+                }
+              </div>
+              <h4>{{ currentRoom()?.name }}</h4>
+              <p class="drawer-desc">{{ currentRoom()?.description || 'No description provided.' }}</p>
+            </div>
+
+            <div class="drawer-members-section">
+              <div class="members-header">
+                <h5>Members</h5>
+                <span class="badge badge-brand">{{ currentRoom()?.members?.length || 1 }}</span>
+              </div>
+
+              <div class="members-list">
+                @for (member of currentRoom()?.members || []; track member.id) {
+                  <div class="member-row">
+                    <div class="avatar avatar-sm avatar-gradient-1">
+                      {{ getUserInitial(member.username) }}
+                      @if (presenceService.isUserOnline(member.id)) {
+                        <span class="status-dot online"></span>
+                      } @else {
+                        <span class="status-dot offline"></span>
+                      }
+                    </div>
+                    <div class="member-info">
+                      <span class="member-name">{{ member.username }}</span>
+                      <span class="member-status-text">
+                        {{ presenceService.isUserOnline(member.id) ? 'Online' : 'Offline' }}
+                      </span>
+                    </div>
+
+                    @if (member.id !== currentUser()?.id) {
+                      <button class="btn btn-ghost btn-xs" (click)="startDirectChat(member)" title="Message directly">
+                        💬
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        </aside>
+      }
     </div>
 
     <!-- MODAL: CREATE CHANNEL -->
@@ -293,18 +534,74 @@ import { User } from '../../models/user.model';
       <div class="modal-backdrop" (click)="showCreateRoomModal.set(false)">
         <div class="modal-card glass-panel" (click)="$event.stopPropagation()">
           <div class="modal-header">
-            <h3>Create New Channel</h3>
+            <div class="modal-title-box">
+              <div class="modal-icon-badge">#</div>
+              <h3>Create Channel</h3>
+            </div>
             <button class="btn-icon" (click)="showCreateRoomModal.set(false)">✕</button>
           </div>
+
           <form (ngSubmit)="createRoom()">
             <div class="form-group">
               <label class="form-label">Channel Name</label>
-              <input type="text" class="form-input" [(ngModel)]="newRoomData.name" name="name" placeholder="e.g. backend-engineering" required />
+              <input 
+                type="text" 
+                class="form-input" 
+                [(ngModel)]="newRoomData.name" 
+                name="name" 
+                placeholder="e.g. backend-squad or announcements" 
+                required 
+                autofocus />
             </div>
+
             <div class="form-group">
-              <label class="form-label">Description (Optional)</label>
-              <input type="text" class="form-input" [(ngModel)]="newRoomData.description" name="description" placeholder="What's this channel about?" />
+              <label class="form-label">Topic / Description (Optional)</label>
+              <input 
+                type="text" 
+                class="form-input" 
+                [(ngModel)]="newRoomData.description" 
+                name="description" 
+                placeholder="What is this channel about?" />
             </div>
+
+            <div class="form-group">
+              <label class="form-label">Add Members (Optional)</label>
+              <input 
+                type="text" 
+                class="form-input" 
+                [(ngModel)]="memberSearchQuery" 
+                (ngModelChange)="searchMembersForRoom()" 
+                placeholder="Search user to add..." />
+
+              @if (selectedMembersForNewRoom.length > 0) {
+                <div class="chips-container">
+                  @for (user of selectedMembersForNewRoom; track user.id) {
+                    <div class="chip">
+                      <span>{{ user.username }}</span>
+                      <button type="button" class="chip-remove" (click)="removeSelectedMember(user.id)">✕</button>
+                    </div>
+                  }
+                </div>
+              }
+
+              @if (memberSearchResults().length > 0) {
+                <div class="member-search-dropdown glass-panel">
+                  @for (user of memberSearchResults(); track user.id) {
+                    <div class="dropdown-item" (click)="addSelectedMember(user)">
+                      <div class="avatar avatar-xs avatar-gradient-2">
+                        {{ getUserInitial(user.username) }}
+                      </div>
+                      <div class="dropdown-user-info">
+                        <span class="dropdown-username">{{ user.username }}</span>
+                        <span class="dropdown-email">{{ user.email }}</span>
+                      </div>
+                      <button type="button" class="btn btn-primary btn-xs">+ Add</button>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary" (click)="showCreateRoomModal.set(false)">Cancel</button>
               <button type="submit" class="btn btn-primary" [disabled]="!newRoomData.name.trim()">Create Channel</button>
@@ -319,452 +616,731 @@ import { User } from '../../models/user.model';
       <div class="modal-backdrop" (click)="showUserSearchModal.set(false)">
         <div class="modal-card glass-panel" (click)="$event.stopPropagation()">
           <div class="modal-header">
-            <h3>Start Direct Conversation</h3>
+            <div class="modal-title-box">
+              <div class="modal-icon-badge">&#64;</div>
+              <h3>New Direct Message</h3>
+            </div>
             <button class="btn-icon" (click)="showUserSearchModal.set(false)">✕</button>
           </div>
+
           <div class="form-group">
             <input 
               type="text" 
               class="form-input" 
               [(ngModel)]="userSearchQuery" 
               (ngModelChange)="searchUsers()" 
-              placeholder="Search user by username..." 
+              placeholder="Search user by username or email..." 
               autofocus />
           </div>
-          <div class="user-search-results">
+
+          <div class="user-search-list">
             @for (user of searchResults(); track user.id) {
               <div class="user-search-item" (click)="startDirectChat(user)">
-                <div class="user-avatar small-avatar">
+                <div class="avatar avatar-sm avatar-gradient-3">
                   {{ getUserInitial(user.username) }}
                   @if (presenceService.isUserOnline(user.id)) {
                     <span class="status-dot online"></span>
+                  } @else {
+                    <span class="status-dot offline"></span>
                   }
                 </div>
-                <div class="user-search-info">
-                  <span class="user-search-name">{{ user.username }}</span>
-                  <span class="user-search-email">{{ user.email }}</span>
+                <div class="user-item-info">
+                  <span class="user-item-name">{{ user.username }}</span>
+                  <span class="user-item-email">{{ user.email }}</span>
                 </div>
                 <button class="btn btn-primary btn-xs">Message</button>
               </div>
             } @empty {
-              <div class="empty-state">
-                <p>No matching users found.</p>
+              <div class="empty-search-state">
+                <p>{{ userSearchQuery ? 'No matching users found.' : 'Type a username to find anyone on PulseChat.' }}</p>
               </div>
             }
           </div>
         </div>
       </div>
     }
+
+    <!-- MODAL: USER PROFILE & SETTINGS -->
+    @if (showProfileModal()) {
+      <div class="modal-backdrop" (click)="showProfileModal.set(false)">
+        <div class="modal-card glass-panel" (click)="$event.stopPropagation()">
+          <div class="modal-header">
+            <h3>My Profile & Connection</h3>
+            <button class="btn-icon" (click)="showProfileModal.set(false)">✕</button>
+          </div>
+
+          <div class="profile-modal-body">
+            <div class="profile-header-card">
+              <div class="avatar avatar-lg avatar-gradient-1">
+                {{ getUserInitial(currentUser()?.username) }}
+                <span class="status-dot online"></span>
+              </div>
+              <div class="profile-header-info">
+                <h4>{{ currentUser()?.username }}</h4>
+                <p>{{ currentUser()?.email }}</p>
+                <span class="badge badge-emerald">Online & Connected</span>
+              </div>
+            </div>
+
+            <div class="profile-stats-grid">
+              <div class="profile-stat-box">
+                <span class="stat-label">Channels Joined</span>
+                <span class="stat-val">{{ myGroupRooms().length }}</span>
+              </div>
+              <div class="profile-stat-box">
+                <span class="stat-label">Direct Chats</span>
+                <span class="stat-val">{{ myDirectRooms().length }}</span>
+              </div>
+              <div class="profile-stat-box">
+                <span class="stat-label">WebSocket Status</span>
+                <span class="stat-val text-emerald">{{ chatService.isConnected() ? 'STOMP Active' : 'Offline' }}</span>
+              </div>
+              <div class="profile-stat-box">
+                <span class="stat-label">Heartbeat Interval</span>
+                <span class="stat-val">15s (TTL 30s)</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" (click)="showProfileModal.set(false)">Close</button>
+            <button type="button" class="btn btn-outline" (click)="logout()">Sign Out</button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- TOAST NOTIFICATIONS CONTAINER -->
+    <div class="toast-container">
+      @for (toast of toasts(); track toast.id) {
+        <div class="toast-item {{ toast.type }}">
+          <span>{{ toast.message }}</span>
+        </div>
+      }
+    </div>
   `,
   styles: [`
-    .chat-app-layout {
+    .chat-workspace-layout {
       display: flex;
       height: 100vh;
       width: 100vw;
-      background-color: var(--bg-primary);
+      background-color: var(--bg-space);
       overflow: hidden;
+      position: relative;
     }
 
-    /* SIDEBAR */
-    .chat-sidebar {
-      width: 320px;
-      min-width: 280px;
-      max-width: 360px;
-      background-color: var(--bg-secondary);
-      border-right: 1px solid var(--border-light);
+    /* 1. WORKSPACE RAIL */
+    .workspace-rail {
+      width: 68px;
+      min-width: 68px;
+      background: var(--bg-primary);
+      border-right: 1px solid var(--border-subtle);
       display: flex;
       flex-direction: column;
-      height: 100%;
-    }
-
-    .sidebar-header {
-      display: flex;
-      align-items: center;
       justify-content: space-between;
-      padding: 16px;
-      border-bottom: 1px solid var(--border-light);
+      align-items: center;
+      padding: 16px 0;
+      z-index: 30;
     }
 
-    .user-profile-info {
+    .rail-top, .rail-bottom {
       display: flex;
+      flex-direction: column;
       align-items: center;
       gap: 12px;
+      width: 100%;
     }
 
-    .user-avatar {
-      position: relative;
-      width: 40px;
-      height: 40px;
-      border-radius: var(--radius-md);
+    .rail-brand-logo {
+      text-decoration: none;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .rail-brand-logo .brand-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: var(--radius-md);
+      background: var(--brand-gradient);
       color: white;
-      font-size: 1rem;
-      background: var(--accent-gradient);
-    }
-
-    .user-avatar.small-avatar {
-      width: 34px;
-      height: 34px;
-      font-size: 0.85rem;
-      border-radius: 50%;
-    }
-
-    .user-avatar .status-dot {
-      position: absolute;
-      bottom: -2px;
-      right: -2px;
-      border: 2px solid var(--bg-secondary);
-    }
-
-    .user-details {
       display: flex;
-      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
     }
 
-    .user-name {
-      font-weight: 700;
-      font-size: 0.95rem;
+    .rail-divider {
+      width: 32px;
+      height: 1px;
+      background: var(--border-light);
+      margin: 4px 0;
+    }
+
+    .rail-btn {
+      position: relative;
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-md);
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .rail-btn:hover {
+      background: var(--bg-tertiary);
       color: var(--text-primary);
     }
 
-    .user-status-text {
+    .rail-btn.active {
+      background: var(--bg-tertiary);
+      color: var(--pulse-indigo);
+      border-color: var(--border-accent);
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.25);
+    }
+
+    .rail-counter {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      background: var(--pulse-indigo);
+      color: white;
+      font-size: 0.65rem;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: var(--radius-full);
+      border: 2px solid var(--bg-primary);
+    }
+
+    .rail-profile-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2px;
+      border-radius: var(--radius-md);
+      transition: transform var(--transition-fast);
+    }
+
+    .rail-profile-btn:hover {
+      transform: scale(1.08);
+    }
+
+    .logout-btn:hover {
+      color: #f87171;
+    }
+
+    .rail-tooltip {
+      display: none;
+      position: absolute;
+      left: calc(100% + 10px);
+      background: var(--bg-elevated);
+      color: var(--text-white);
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
       font-size: 0.75rem;
-      color: var(--status-online);
+      font-weight: 600;
+      white-space: nowrap;
+      z-index: 100;
+      box-shadow: var(--shadow-md);
+      border: 1px solid var(--border-light);
+      pointer-events: none;
+    }
+
+    .rail-btn:hover .rail-tooltip,
+    .rail-profile-btn:hover .rail-tooltip {
+      display: block;
+    }
+
+    /* 2. CONVERSATIONS SIDEBAR */
+    .conversations-sidebar {
+      width: 300px;
+      min-width: 270px;
+      max-width: 340px;
+      background: var(--bg-secondary);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      z-index: 20;
+    }
+
+    .sidebar-header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .sidebar-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sidebar-title-row h2 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--text-white);
+      letter-spacing: -0.01em;
+    }
+
+    .action-add-btn {
+      width: 30px;
+      height: 30px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+    }
+
+    .action-add-btn:hover {
+      background: var(--pulse-indigo);
+      border-color: var(--pulse-indigo);
+      color: white;
+    }
+
+    .sidebar-search-box {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .sidebar-search-box svg {
+      position: absolute;
+      left: 10px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .sidebar-search-input {
+      width: 100%;
+      padding: 8px 28px 8px 32px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 0.82rem;
+      outline: none;
+    }
+
+    .sidebar-search-input:focus {
+      border-color: var(--pulse-indigo);
+    }
+
+    .clear-search-btn {
+      position: absolute;
+      right: 8px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      cursor: pointer;
     }
 
     .connection-status-pill {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 16px;
-      background: rgba(0, 0, 0, 0.25);
-      font-size: 0.76rem;
+      padding: 4px 10px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: var(--radius-full);
+      font-size: 0.72rem;
       color: var(--text-muted);
-      border-bottom: 1px solid var(--border-light);
     }
 
     .connection-status-pill.connected {
-      color: var(--text-secondary);
+      color: #6ee7b7;
     }
 
-    .sidebar-tabs {
-      display: flex;
-      padding: 8px 12px 0 12px;
-      gap: 6px;
-      border-bottom: 1px solid var(--border-light);
-    }
-
-    .tab-link {
-      flex: 1;
-      padding: 8px 4px;
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      font-size: 0.8rem;
-      font-weight: 600;
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: all 0.2s;
-    }
-
-    .tab-link.active {
-      color: var(--text-primary);
-      border-bottom-color: var(--accent-primary);
-    }
-
-    .sidebar-actions {
-      padding: 10px 12px;
-    }
-
-    .sidebar-list {
+    .conversations-scroll-list {
       flex: 1;
       overflow-y: auto;
-      padding: 6px 12px;
+      padding: 10px 8px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
     }
 
-    .list-item {
+    .conversation-row {
       display: flex;
       align-items: center;
       gap: 10px;
       padding: 10px 12px;
       border-radius: var(--radius-md);
       cursor: pointer;
-      transition: all 0.15s ease-in-out;
+      transition: all var(--transition-fast);
       border: 1px solid transparent;
+      user-select: none;
     }
 
-    .list-item:hover {
-      background: rgba(255, 255, 255, 0.04);
-    }
-
-    .list-item.active {
-      background: rgba(99, 102, 241, 0.15);
-      border-color: rgba(99, 102, 241, 0.35);
-    }
-
-    .item-icon-box {
-      width: 32px;
-      height: 32px;
-      border-radius: var(--radius-sm);
+    .conversation-row:hover {
       background: var(--bg-tertiary);
+    }
+
+    .conversation-row.active {
+      background: var(--bg-tertiary);
+      border-color: var(--border-accent);
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.15);
+    }
+
+    .channel-icon-tag {
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      color: var(--pulse-indigo);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-weight: 700;
-      color: var(--text-secondary);
-      font-size: 0.95rem;
+      font-weight: 800;
+      font-size: 1.1rem;
+      flex-shrink: 0;
     }
 
-    .item-content {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .item-title {
-      font-weight: 600;
-      font-size: 0.88rem;
-      color: var(--text-primary);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .item-subtitle {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .item-badge {
-      font-size: 0.72rem;
-      padding: 2px 6px;
-      background: var(--bg-tertiary);
-      border-radius: var(--radius-full);
-      color: var(--text-muted);
-    }
-
-    .btn-xs {
-      padding: 4px 8px;
-      font-size: 0.75rem;
-      border-radius: var(--radius-sm);
-    }
-
-    .btn-sm {
-      padding: 8px 12px;
-      font-size: 0.82rem;
-    }
-
-    .w-full {
-      width: 100%;
-    }
-
-    .btn-text {
-      background: none;
+    .conversation-row.active .channel-icon-tag {
+      background: var(--brand-gradient);
+      color: white;
       border: none;
-      color: var(--accent-primary);
-      cursor: pointer;
-      font-size: 0.8rem;
-      margin-top: 6px;
-      text-decoration: underline;
     }
 
-    .empty-state {
-      padding: 24px 12px;
-      text-align: center;
-      color: var(--text-muted);
+    .explore-tag {
+      font-size: 1rem;
+    }
+
+    .avatar-sm {
+      width: 36px;
+      height: 36px;
       font-size: 0.85rem;
     }
 
-    /* CHAT MAIN */
-    .chat-main {
+    .avatar-sm .status-dot {
+      position: absolute;
+      bottom: -1px;
+      right: -1px;
+      border: 2px solid var(--bg-secondary);
+    }
+
+    .row-main-content {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .row-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .row-name {
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: var(--text-white);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-badge {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 1px 6px;
+      border-radius: var(--radius-full);
+      flex-shrink: 0;
+    }
+
+    .row-time {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .row-last-msg {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-last-msg .msg-sender {
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    .empty-list-state {
+      text-align: center;
+      padding: 40px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+    }
+
+    .empty-icon {
+      font-size: 2rem;
+      margin-bottom: 4px;
+    }
+
+    /* 3. MAIN CHAT AREA */
+    .chat-main-area {
       flex: 1;
       display: flex;
       flex-direction: column;
       height: 100%;
-      background-color: var(--bg-primary);
+      background: var(--bg-primary);
       position: relative;
+      overflow: hidden;
     }
 
     .chat-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-subtle);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--border-light);
-      background: var(--bg-secondary);
-      backdrop-filter: blur(10px);
+      border-radius: 0;
+      z-index: 10;
     }
 
-    .header-room-info {
+    .header-left {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
+      min-width: 0;
     }
 
-    .header-icon {
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: var(--accent-primary);
+    .mobile-back-btn {
+      display: none;
     }
 
-    .header-room-info h2 {
-      font-size: 1.15rem;
-      font-weight: 700;
-    }
-
-    .header-sub {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-    }
-
-    .cluster-badge {
-      display: inline-flex;
+    .channel-header-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: var(--radius-md);
+      background: var(--brand-gradient);
+      color: white;
+      display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      background: rgba(16, 185, 129, 0.12);
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      border-radius: var(--radius-full);
-      font-size: 0.72rem;
-      font-weight: 600;
-      color: #34d399;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.2rem;
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
     }
 
-    .badge-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #10b981;
+    .header-details {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
     }
 
-    /* MESSAGES */
+    .header-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-title-row h2 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--text-white);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .header-subtitle {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .active-btn {
+      background: var(--bg-tertiary);
+      color: var(--pulse-indigo);
+      border-color: var(--border-accent);
+    }
+
+    /* MESSAGES CONTAINER */
     .messages-container {
       flex: 1;
       overflow-y: auto;
       padding: 20px 24px;
       display: flex;
       flex-direction: column;
+      position: relative;
     }
 
-    .load-more-wrapper {
-      text-align: center;
+    .load-older-banner {
+      display: flex;
+      justify-content: center;
       margin-bottom: 16px;
     }
 
-    .messages-list {
+    .messages-stream {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
       margin-top: auto;
     }
 
-    .message-bubble-wrapper {
+    .message-row {
       display: flex;
-      gap: 10px;
-      max-width: 75%;
-      animation: fadeIn 0.2s ease-out;
+      gap: 12px;
+      max-width: 80%;
+      animation: fadeIn 0.25s ease-out;
     }
 
-    .message-bubble-wrapper.outgoing {
+    .message-row.outgoing {
       align-self: flex-end;
       flex-direction: row-reverse;
     }
 
-    .message-bubble-wrapper.incoming {
+    .message-row.incoming {
       align-self: flex-start;
     }
 
-    .msg-avatar {
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      background: var(--bg-tertiary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.8rem;
-      font-weight: 700;
-      color: var(--text-primary);
-      flex-shrink: 0;
-    }
-
-    .message-body {
+    .message-content-group {
       display: flex;
       flex-direction: column;
+      gap: 3px;
     }
 
-    .msg-sender-name {
+    .message-row.outgoing .message-content-group {
+      align-items: flex-end;
+    }
+
+    .message-sender-label {
       font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      margin-bottom: 4px;
-      margin-left: 4px;
+      font-weight: 700;
+      color: var(--pulse-cyan);
+      margin-left: 6px;
     }
 
-    .msg-bubble {
-      padding: 10px 14px;
-      border-radius: var(--radius-md);
+    .message-bubble {
+      padding: 10px 16px;
+      border-radius: var(--radius-lg);
       position: relative;
       word-break: break-word;
     }
 
-    .message-bubble-wrapper.outgoing .msg-bubble {
-      background: var(--accent-gradient);
+    .message-row.outgoing .message-bubble {
+      background: var(--brand-gradient);
       color: white;
-      border-bottom-right-radius: 2px;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+      border-bottom-right-radius: 4px;
+      box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
     }
 
-    .message-bubble-wrapper.incoming .msg-bubble {
+    .message-row.incoming .message-bubble {
       background: var(--bg-tertiary);
       color: var(--text-primary);
-      border-bottom-left-radius: 2px;
       border: 1px solid var(--border-light);
+      border-bottom-left-radius: 4px;
     }
 
-    .msg-text {
+    .message-text {
       font-size: 0.92rem;
-      line-height: 1.45;
+      line-height: 1.5;
     }
 
-    .msg-timestamp {
+    .message-meta-time {
       display: block;
-      font-size: 0.68rem;
+      font-size: 0.65rem;
       margin-top: 4px;
-      opacity: 0.7;
+      opacity: 0.75;
       text-align: right;
     }
 
-    .empty-messages-placeholder {
-      text-align: center;
-      padding: 60px 20px;
+    .system-message-row {
+      display: flex;
+      justify-content: center;
+      margin: 8px 0;
+    }
+
+    .system-message-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 14px;
+      border-radius: var(--radius-full);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      font-size: 0.75rem;
       color: var(--text-muted);
     }
 
-    .placeholder-icon {
-      font-size: 2.5rem;
-      margin-bottom: 12px;
+    .system-time {
+      opacity: 0.6;
+      font-size: 0.65rem;
     }
 
-    .typing-indicator-bar {
+    .empty-conversation-state {
+      text-align: center;
+      padding: 80px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      color: var(--text-muted);
+    }
+
+    .empty-conversation-icon {
+      color: var(--pulse-indigo);
+      margin-bottom: 8px;
+    }
+
+    .empty-conversation-state h3 {
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: var(--text-white);
+    }
+
+    .empty-conversation-state p {
+      max-width: 420px;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    /* TYPING INDICATOR */
+    .live-typing-bar {
       display: flex;
       align-items: center;
       gap: 8px;
       font-size: 0.78rem;
       color: var(--text-muted);
+      padding: 8px 14px;
       margin-top: 10px;
-      padding: 6px 12px;
       border-radius: var(--radius-full);
-      background: rgba(0, 0, 0, 0.2);
+      background: rgba(0, 0, 0, 0.25);
       width: fit-content;
+      animation: fadeIn 0.2s ease-out;
     }
 
     .typing-dots {
@@ -775,40 +1351,113 @@ import { User } from '../../models/user.model';
     .typing-dots span {
       width: 5px;
       height: 5px;
-      background: var(--accent-primary);
+      background: var(--pulse-indigo);
       border-radius: 50%;
       animation: bounce 1.4s infinite ease-in-out both;
     }
     .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
     .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
 
+    .scroll-bottom-fab {
+      position: absolute;
+      bottom: 16px;
+      right: 24px;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-medium);
+      color: var(--text-white);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: var(--shadow-md);
+      transition: transform var(--transition-fast);
+      z-index: 20;
+    }
+
+    .scroll-bottom-fab:hover {
+      transform: translateY(-2px);
+      border-color: var(--pulse-indigo);
+    }
+
     /* COMPOSER */
-    .chat-input-area {
-      padding: 16px 24px;
-      background: var(--bg-secondary);
-      border-top: 1px solid var(--border-light);
+    .composer-container {
+      padding: 12px 20px 16px;
+      border-top: 1px solid var(--border-subtle);
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .composer-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .quick-emojis {
+      display: flex;
+      gap: 4px;
+    }
+
+    .emoji-chip {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: var(--radius-xs);
+      font-size: 0.95rem;
+      transition: transform var(--transition-fast);
+    }
+
+    .emoji-chip:hover {
+      transform: scale(1.2);
+    }
+
+    .composer-hint {
+      font-size: 0.7rem;
+      color: var(--text-muted);
     }
 
     .composer-form {
       display: flex;
-      gap: 12px;
-      align-items: center;
+      gap: 10px;
+      align-items: flex-end;
     }
 
-    .composer-input {
+    .composer-textarea {
       flex: 1;
-      padding: 14px 18px;
-      border-radius: var(--radius-lg);
+      padding: 12px 16px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 0.92rem;
+      outline: none;
+      resize: none;
+      min-height: 46px;
+      max-height: 120px;
+      line-height: 1.4;
     }
 
-    .send-btn {
-      padding: 12px 20px;
-      border-radius: var(--radius-lg);
+    .composer-textarea:focus {
+      border-color: var(--pulse-indigo);
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    }
+
+    .send-action-btn {
+      height: 46px;
+      padding: 0 18px;
+      border-radius: var(--radius-md);
       flex-shrink: 0;
     }
 
-    /* EMPTY CHAT SCREEN */
-    .no-room-selected {
+    /* EMPTY WORKSPACE STATE */
+    .empty-workspace-state {
       flex: 1;
       display: flex;
       align-items: center;
@@ -816,142 +1465,515 @@ import { User } from '../../models/user.model';
       padding: 24px;
     }
 
-    .no-room-card {
-      max-width: 440px;
+    .empty-workspace-card {
+      max-width: 480px;
+      padding: 48px 36px;
+      border-radius: var(--radius-xl);
       text-align: center;
-      padding: 40px 32px;
-      border-radius: var(--radius-lg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
     }
 
-    .logo-badge.large {
-      width: 72px;
-      height: 72px;
-      margin: 0 auto 20px auto;
+    .large-icon {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 4px;
     }
 
-    .quick-action-buttons {
+    .empty-workspace-card h2 {
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--text-white);
+    }
+
+    .empty-workspace-card p {
+      font-size: 0.92rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .empty-action-row {
       display: flex;
       gap: 12px;
-      justify-content: center;
-      margin-top: 24px;
+      margin-top: 8px;
     }
 
-    /* MODAL */
+    /* 4. DETAILS DRAWER */
+    .details-drawer {
+      width: 280px;
+      min-width: 260px;
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border-subtle);
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      z-index: 25;
+      animation: slideInRight 0.25s ease-out;
+    }
+
+    .drawer-header {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .drawer-header h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text-white);
+    }
+
+    .drawer-content {
+      padding: 18px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .drawer-overview-card {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .drawer-avatar-large {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-lg);
+      background: var(--brand-gradient);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      font-weight: 800;
+    }
+
+    .drawer-desc {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .members-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .members-header h5 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .members-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .member-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 8px;
+      border-radius: var(--radius-sm);
+    }
+
+    .member-row:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .member-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .member-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-white);
+    }
+
+    .member-status-text {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* MODAL SYSTEM */
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.7);
-      backdrop-filter: blur(8px);
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(10px);
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 1000;
       padding: 20px;
+      animation: fadeIn 0.2s ease-out;
     }
 
     .modal-card {
       width: 100%;
-      max-width: 460px;
-      padding: 28px;
-      border-radius: var(--radius-lg);
+      max-width: 480px;
+      padding: 32px 28px;
+      border-radius: var(--radius-xl);
       box-shadow: var(--shadow-lg);
+      position: relative;
     }
 
     .modal-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
+    }
+
+    .modal-title-box {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-icon-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      background: var(--brand-gradient);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
     }
 
     .modal-footer {
       display: flex;
       justify-content: flex-end;
       gap: 10px;
-      margin-top: 20px;
+      margin-top: 24px;
     }
 
-    .user-search-results {
-      max-height: 280px;
+    .chips-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: var(--radius-full);
+      background: var(--pulse-indigo);
+      color: white;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    .chip-remove {
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+
+    .member-search-dropdown {
+      margin-top: 8px;
+      max-height: 180px;
       overflow-y: auto;
+      border-radius: var(--radius-md);
+      padding: 6px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      margin-top: 12px;
+      gap: 4px;
     }
 
-    .user-search-item {
+    .dropdown-item {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 8px 12px;
-      border-radius: var(--radius-md);
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
+    }
+
+    .dropdown-item:hover {
       background: var(--bg-tertiary);
     }
 
-    .user-search-item:hover {
-      background: rgba(255, 255, 255, 0.08);
-    }
-
-    .user-search-info {
+    .dropdown-user-info {
       flex: 1;
       display: flex;
       flex-direction: column;
     }
 
-    .user-search-name {
+    .dropdown-username {
+      font-size: 0.82rem;
       font-weight: 600;
-      font-size: 0.88rem;
+      color: var(--text-white);
     }
 
-    .user-search-email {
+    .dropdown-email {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    .user-search-list {
+      max-height: 280px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .user-search-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      cursor: pointer;
+    }
+
+    .user-search-item:hover {
+      background: var(--bg-tertiary);
+      border-color: var(--border-accent);
+    }
+
+    .user-item-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .user-item-name {
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: var(--text-white);
+    }
+
+    .user-item-email {
       font-size: 0.75rem;
       color: var(--text-muted);
+    }
+
+    .empty-search-state {
+      text-align: center;
+      padding: 30px 16px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    /* PROFILE MODAL */
+    .profile-modal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .profile-header-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      border-radius: var(--radius-lg);
+      background: var(--bg-tertiary);
+    }
+
+    .avatar-lg {
+      width: 56px;
+      height: 56px;
+      font-size: 1.4rem;
+    }
+
+    .profile-header-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .profile-header-info h4 {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: var(--text-white);
+    }
+
+    .profile-header-info p {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .profile-stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .profile-stat-box {
+      padding: 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .profile-stat-box .stat-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .profile-stat-box .stat-val {
+      font-size: 1rem;
+      font-weight: 800;
+      color: var(--text-white);
+      font-family: var(--font-mono);
+    }
+
+    .text-emerald { color: #6ee7b7 !important; }
+
+    .spinner-xs {
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+      margin-right: 4px;
+    }
+
+    /* RESPONSIVE LAYOUT */
+    @media (max-width: 768px) {
+      .workspace-rail {
+        display: none;
+      }
+      .conversations-sidebar {
+        width: 100%;
+        max-width: 100%;
+      }
+      .mobile-view-chat .conversations-sidebar {
+        display: none;
+      }
+      .mobile-view-chat .chat-main-area {
+        display: flex;
+      }
+      .mobile-back-btn {
+        display: flex;
+      }
+      .details-drawer {
+        position: fixed;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 85%;
+        box-shadow: var(--shadow-lg);
+      }
     }
   `]
 })
 export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   @ViewChild('messagesContainer') private messagesContainer?: ElementRef;
+  @ViewChild('composerTextarea') private composerTextarea?: ElementRef;
 
   public authService = inject(AuthService);
   public chatService = inject(ChatService);
   public presenceService = inject(PresenceService);
   private http = inject(HttpClient);
+  private router = inject(Router);
 
   currentUser = this.authService.currentUser;
   activeTab = signal<'channels' | 'direct' | 'explore'>('channels');
 
+  // Rooms & Messages State
   myRooms = signal<Room[]>([]);
   publicRooms = signal<Room[]>([]);
   currentRoom = signal<Room | null>(null);
   messages = signal<ChatMessage[]>([]);
 
-  // Pagination state
+  // Search & Filters
+  sidebarSearchQuery = '';
+
+  // Pagination State
   currentPage = signal<number>(0);
   hasMoreMessages = signal<boolean>(false);
   isLoadingMore = signal<boolean>(false);
+  showScrollBottomBtn = signal<boolean>(false);
 
-  // Modals & Search
+  // Modals & Panels
   showCreateRoomModal = signal<boolean>(false);
   showUserSearchModal = signal<boolean>(false);
+  showProfileModal = signal<boolean>(false);
+  showDetailsDrawer = signal<boolean>(false);
+
+  // Room creation data
   newRoomData: CreateRoomRequest = { name: '', description: '', isGroup: true };
+  memberSearchQuery = '';
+  memberSearchResults = signal<User[]>([]);
+  selectedMembersForNewRoom: User[] = [];
+
+  // Direct user search data
   userSearchQuery = '';
   searchResults = signal<User[]>([]);
 
-  // Composer
+  // Composer & Typing State
   messageText = '';
   private typingTimeout?: any;
   currentTypingUser = signal<string | null>(null);
   private typingResetTimeout?: any;
 
+  // Toasts
+  toasts = signal<Toast[]>([]);
+
   private subscriptions: Subscription[] = [];
   private shouldScrollToBottom = false;
 
+  // Computed Room Lists
   myGroupRooms = computed(() => this.myRooms().filter(r => r.isGroup));
   myDirectRooms = computed(() => this.myRooms().filter(r => !r.isGroup));
 
-  constructor() {}
+  filteredGroupRooms = computed(() => {
+    const q = this.sidebarSearchQuery.trim().toLowerCase();
+    if (!q) return this.myGroupRooms();
+    return this.myGroupRooms().filter(r => r.name.toLowerCase().includes(q) || r.description?.toLowerCase().includes(q));
+  });
+
+  filteredDirectRooms = computed(() => {
+    const q = this.sidebarSearchQuery.trim().toLowerCase();
+    if (!q) return this.myDirectRooms();
+    return this.myDirectRooms().filter(r => r.name.toLowerCase().includes(q));
+  });
+
+  filteredPublicRooms = computed(() => {
+    const q = this.sidebarSearchQuery.trim().toLowerCase();
+    if (!q) return this.publicRooms();
+    return this.publicRooms().filter(r => r.name.toLowerCase().includes(q) || r.description?.toLowerCase().includes(q));
+  });
 
   ngOnInit(): void {
     // 1. Establish STOMP connection
@@ -1002,7 +2024,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
 
   ngAfterViewChecked(): void {
     if (this.shouldScrollToBottom) {
-      this.scrollToBottom();
+      this.scrollToBottom(false);
       this.shouldScrollToBottom = false;
     }
   }
@@ -1010,6 +2032,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   ngOnDestroy(): void {
     this.subscriptions.forEach(s => s.unsubscribe());
     this.chatService.disconnect();
+  }
+
+  toggleDetailsDrawer(): void {
+    this.showDetailsDrawer.update(v => !v);
   }
 
   loadUserRooms(): void {
@@ -1026,7 +2052,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
           });
         }
       },
-      error: (err) => console.error('Failed to load user rooms', err)
+      error: (err) => {
+        console.error('Failed to load user rooms', err);
+        this.addToast('error', 'Failed to load conversation list.');
+      }
     });
   }
 
@@ -1051,14 +2080,13 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     // Subscribe to STOMP destination /topic/room.{roomId}
     this.chatService.subscribeToRoom(room.id);
 
-    // Load initial paginated history from PostgreSQL via REST
+    // Load initial paginated history from MySQL via REST
     this.loadMessages(room.id, 0);
   }
 
   loadMessages(roomId: string, page: number): void {
     this.http.get<PageResponse<ChatMessage>>(`/api/rooms/${roomId}/messages?page=${page}&size=40`).subscribe({
       next: (res) => {
-        // Backend returns descending by createdAt, we reverse for ascending chat view
         const history = [...res.content].reverse();
         if (page === 0) {
           this.messages.set(history);
@@ -1073,6 +2101,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
       error: (err) => {
         console.error('Failed to load messages', err);
         this.isLoadingMore.set(false);
+        this.addToast('error', 'Failed to retrieve message history.');
       }
     });
   }
@@ -1095,13 +2124,19 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (this.currentRoom()!.isGroup) {
       this.chatService.sendRoomMessage(this.currentRoom()!.id, content);
     } else {
-      // Find other member
       const otherUser = this.currentRoom()!.members?.find(m => m.id !== this.currentUser()?.id);
       if (otherUser) {
         this.chatService.sendPrivateMessage(otherUser.id, otherUser.username, content);
       } else {
         this.chatService.sendRoomMessage(this.currentRoom()!.id, content);
       }
+    }
+  }
+
+  onComposerKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      this.sendMessage();
     }
   }
 
@@ -1117,18 +2152,63 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     }, 2500);
   }
 
+  appendEmoji(emoji: string): void {
+    this.messageText += emoji;
+    this.composerTextarea?.nativeElement.focus();
+  }
+
   createRoom(): void {
     if (!this.newRoomData.name.trim()) return;
 
-    this.http.post<Room>('/api/rooms', this.newRoomData).subscribe({
+    const payload: CreateRoomRequest = {
+      name: this.newRoomData.name.trim(),
+      description: this.newRoomData.description?.trim(),
+      isGroup: true,
+      memberUserIds: this.selectedMembersForNewRoom.map(u => u.id)
+    };
+
+    this.http.post<Room>('/api/rooms', payload).subscribe({
       next: (created) => {
         this.showCreateRoomModal.set(false);
         this.newRoomData = { name: '', description: '', isGroup: true };
+        this.selectedMembersForNewRoom = [];
+        this.memberSearchQuery = '';
+        this.memberSearchResults.set([]);
         this.loadUserRooms();
         this.selectRoom(created);
+        this.addToast('success', `Channel #${created.name} created!`);
       },
-      error: (err) => console.error('Failed to create room', err)
+      error: (err) => {
+        console.error('Failed to create room', err);
+        this.addToast('error', 'Failed to create channel.');
+      }
     });
+  }
+
+  searchMembersForRoom(): void {
+    if (!this.memberSearchQuery.trim()) {
+      this.memberSearchResults.set([]);
+      return;
+    }
+
+    this.http.get<User[]>(`/api/users?q=${encodeURIComponent(this.memberSearchQuery)}`).subscribe({
+      next: (users) => {
+        const selectedIds = new Set(this.selectedMembersForNewRoom.map(u => u.id));
+        selectedIds.add(this.currentUser()?.id || '');
+        this.memberSearchResults.set(users.filter(u => !selectedIds.has(u.id)));
+      },
+      error: (err) => console.error('Search failed', err)
+    });
+  }
+
+  addSelectedMember(user: User): void {
+    this.selectedMembersForNewRoom.push(user);
+    this.memberSearchQuery = '';
+    this.memberSearchResults.set([]);
+  }
+
+  removeSelectedMember(userId: string): void {
+    this.selectedMembersForNewRoom = this.selectedMembersForNewRoom.filter(u => u.id !== userId);
   }
 
   joinRoom(room: Room): void {
@@ -1137,8 +2217,12 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.loadUserRooms();
         this.selectRoom(joined);
         this.activeTab.set('channels');
+        this.addToast('success', `Joined #${joined.name}`);
       },
-      error: (err) => console.error('Failed to join room', err)
+      error: (err) => {
+        console.error('Failed to join room', err);
+        this.addToast('error', 'Failed to join room.');
+      }
     });
   }
 
@@ -1164,7 +2248,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.selectRoom(room);
         this.activeTab.set('direct');
       },
-      error: (err) => console.error('Failed to initiate direct chat', err)
+      error: (err) => {
+        console.error('Failed to initiate direct chat', err);
+        this.addToast('error', 'Failed to start direct message.');
+      }
     });
   }
 
@@ -1177,18 +2264,35 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     return otherUser ? this.presenceService.isUserOnline(otherUser.id) : false;
   }
 
+  onMessagesScroll(event: any): void {
+    const target = event.target;
+    const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    this.showScrollBottomBtn.set(distanceToBottom > 200);
+  }
+
+  scrollToBottom(smooth: boolean = false): void {
+    try {
+      if (this.messagesContainer) {
+        this.messagesContainer.nativeElement.scrollTo({
+          top: this.messagesContainer.nativeElement.scrollHeight,
+          behavior: smooth ? 'smooth' : 'auto'
+        });
+      }
+    } catch {}
+  }
+
   private updateLastMessageInRoomList(msg: ChatMessage): void {
     this.myRooms.update(rooms =>
       rooms.map(r => r.id === msg.roomId ? { ...r, lastMessage: msg } : r)
     );
   }
 
-  private scrollToBottom(): void {
-    try {
-      if (this.messagesContainer) {
-        this.messagesContainer.nativeElement.scrollTop = this.messagesContainer.nativeElement.scrollHeight;
-      }
-    } catch {}
+  addToast(type: 'success' | 'error' | 'info', message: string): void {
+    const id = String(Date.now());
+    this.toasts.update(t => [...t, { id, type, message }]);
+    setTimeout(() => {
+      this.toasts.update(t => t.filter(item => item.id !== id));
+    }, 4000);
   }
 
   getUserInitial(name?: string): string {
@@ -1199,6 +2303,10 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     if (!isoString) return '';
     const date = new Date(isoString);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  isMobile(): boolean {
+    return typeof window !== 'undefined' && window.innerWidth < 768;
   }
 
   logout(): void {

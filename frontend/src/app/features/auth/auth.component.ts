@@ -1,214 +1,524 @@
-import { Component, signal } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 
 @Component({
   selector: 'app-auth',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
-    <div class="auth-container">
-      <div class="auth-background-glow"></div>
+    <div class="auth-split-wrapper">
+      <!-- AMBIENT BACKGROUND GLOWS -->
+      <div class="ambient-glow glow-left"></div>
+      <div class="ambient-glow glow-right"></div>
 
-      <div class="auth-card glass-panel">
-        <div class="auth-header">
-          <div class="logo-badge">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-            </svg>
+      <!-- LEFT COLUMN: BRAND VISUAL & IDENTITY -->
+      <div class="auth-brand-side">
+        <div class="brand-side-content">
+          <!-- Logo & Name -->
+          <div class="brand-header" routerLink="/">
+            <div class="brand-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+              </svg>
+            </div>
+            <span class="brand-title">Pulse<span>Chat</span></span>
           </div>
-          <h1>PulseChat</h1>
-          <p class="subtitle">Distributed Real-Time Messaging Platform</p>
-        </div>
 
-        <div class="tab-switcher">
-          <button 
-            type="button" 
-            class="tab-btn" 
-            [class.active]="isLoginMode()" 
-            (click)="setMode(true)">
-            Sign In
-          </button>
-          <button 
-            type="button" 
-            class="tab-btn" 
-            [class.active]="!isLoginMode()" 
-            (click)="setMode(false)">
-            Create Account
-          </button>
-        </div>
-
-        @if (errorMessage()) {
-          <div class="alert-banner error">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="12" y1="8" x2="12" y2="12"></line>
-              <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-            <span>{{ errorMessage() }}</span>
+          <!-- Hero Statement -->
+          <div class="brand-statement">
+            <h2>Real-time messaging engineered for the future.</h2>
+            <p>Connect instantly with low-latency STOMP channels, direct conversations, live presence signals, and active typing feedback.</p>
           </div>
-        }
 
-        <!-- LOGIN FORM -->
-        @if (isLoginMode()) {
-          <form (ngSubmit)="onLogin()" class="auth-form">
-            <div class="form-group">
-              <label class="form-label" for="loginUser">Username or Email</label>
-              <input 
-                id="loginUser"
-                type="text" 
-                class="form-input" 
-                [(ngModel)]="loginData.usernameOrEmail" 
-                name="usernameOrEmail" 
-                placeholder="e.g. alex or alex@example.com" 
-                required 
-                autofocus />
+          <!-- Animated Network Visual Card -->
+          <div class="pulse-visual-card glass-panel">
+            <div class="visual-card-header">
+              <div class="live-beacon">
+                <span class="status-dot online"></span>
+                <span>Active Cluster Node</span>
+              </div>
+              <span class="cluster-id">node-us-east-01</span>
             </div>
 
-            <div class="form-group">
-              <label class="form-label" for="loginPass">Password</label>
-              <input 
-                id="loginPass"
-                type="password" 
-                class="form-input" 
-                [(ngModel)]="loginData.password" 
-                name="password" 
-                placeholder="••••••••" 
-                required />
+            <div class="visual-waveform">
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
             </div>
 
-            <button type="submit" class="btn btn-primary btn-block" [disabled]="isLoading()">
-              @if (isLoading()) {
-                <span class="spinner"></span> Authenticating...
-              } @else {
-                Sign In to Chat
-              }
+            <div class="visual-features">
+              <div class="feature-chip">
+                <span class="chip-dot"></span> Java 21 Concurrency
+              </div>
+              <div class="feature-chip">
+                <span class="chip-dot"></span> Spring STOMP / WS
+              </div>
+              <div class="feature-chip">
+                <span class="chip-dot"></span> Stateless JWT
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer Testimonial / Tag -->
+          <div class="brand-footer-note">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            <span>Protected with stateless HMAC-SHA256 JWT cryptography</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN: AUTHENTICATION FORM -->
+      <div class="auth-form-side">
+        <div class="form-container glass-panel">
+          <!-- Mobile Brand Header (Visible only on small screens) -->
+          <div class="mobile-brand-header">
+            <div class="brand-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+              </svg>
+            </div>
+            <span class="brand-title">Pulse<span>Chat</span></span>
+          </div>
+
+          <!-- Form Header & Switcher Tabs -->
+          <div class="form-header">
+            <h1>{{ isLoginMode() ? 'Welcome back' : 'Create an account' }}</h1>
+            <p class="form-subtitle">
+              {{ isLoginMode() ? 'Sign in to access your channels and direct messages.' : 'Start communicating with your team in real time.' }}
+            </p>
+          </div>
+
+          <div class="tab-switcher">
+            <button 
+              type="button" 
+              class="tab-btn" 
+              [class.active]="isLoginMode()" 
+              (click)="setMode(true)">
+              Sign In
             </button>
-          </form>
-        } @else {
-          <!-- REGISTER FORM -->
-          <form (ngSubmit)="onRegister()" class="auth-form">
-            <div class="form-group">
-              <label class="form-label" for="regUsername">Username</label>
-              <input 
-                id="regUsername"
-                type="text" 
-                class="form-input" 
-                [(ngModel)]="registerData.username" 
-                name="username" 
-                placeholder="e.g. SarahConnor" 
-                required />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label" for="regEmail">Email Address</label>
-              <input 
-                id="regEmail"
-                type="email" 
-                class="form-input" 
-                [(ngModel)]="registerData.email" 
-                name="email" 
-                placeholder="sarah@example.com" 
-                required />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label" for="regPass">Password</label>
-              <input 
-                id="regPass"
-                type="password" 
-                class="form-input" 
-                [(ngModel)]="registerData.password" 
-                name="password" 
-                placeholder="At least 6 characters" 
-                minlength="6" 
-                required />
-            </div>
-
-            <button type="submit" class="btn btn-primary btn-block" [disabled]="isLoading()">
-              @if (isLoading()) {
-                <span class="spinner"></span> Creating Account...
-              } @else {
-                Create My Account
-              }
+            <button 
+              type="button" 
+              class="tab-btn" 
+              [class.active]="!isLoginMode()" 
+              (click)="setMode(false)">
+              Create Account
             </button>
-          </form>
-        }
+          </div>
 
-        <div class="auth-footer">
-          <div class="feature-tag">
-            <span class="pulse-indicator"></span>
-            Spring Boot 3.5 • Redis Pub/Sub • STOMP
+          <!-- Alert Error Banner -->
+          @if (errorMessage()) {
+            <div class="alert-banner error">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              <span>{{ errorMessage() }}</span>
+            </div>
+          }
+
+          <!-- SIGN IN FORM -->
+          @if (isLoginMode()) {
+            <form (ngSubmit)="onLogin()" class="auth-form">
+              <div class="form-group">
+                <label class="form-label" for="loginUser">Username or Email</label>
+                <div class="input-with-icon">
+                  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                  <input 
+                    id="loginUser"
+                    type="text" 
+                    class="form-input icon-input" 
+                    [(ngModel)]="loginData.usernameOrEmail" 
+                    name="usernameOrEmail" 
+                    placeholder="e.g. alex or alex@example.com" 
+                    required 
+                    autofocus />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <div class="label-row">
+                  <label class="form-label" for="loginPass">Password</label>
+                </div>
+                <div class="input-with-icon">
+                  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                  <input 
+                    id="loginPass"
+                    [type]="showPassword() ? 'text' : 'password'" 
+                    class="form-input icon-input" 
+                    [(ngModel)]="loginData.password" 
+                    name="password" 
+                    placeholder="Enter your password" 
+                    required />
+                  <button type="button" class="pwd-toggle-btn" (click)="togglePassword()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      @if (showPassword()) {
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                        <line x1="1" y1="1" x2="23" y2="23"></line>
+                      } @else {
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                      }
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary btn-block btn-lg" [disabled]="isLoading()">
+                @if (isLoading()) {
+                  <span class="spinner"></span> Authenticating...
+                } @else {
+                  <span>Sign In</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                    <polyline points="12 5 19 12 12 19"></polyline>
+                  </svg>
+                }
+              </button>
+            </form>
+          } @else {
+            <!-- CREATE ACCOUNT FORM -->
+            <form (ngSubmit)="onRegister()" class="auth-form">
+              <div class="form-group">
+                <label class="form-label" for="regUsername">Choose a Username</label>
+                <div class="input-with-icon">
+                  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                  <input 
+                    id="regUsername"
+                    type="text" 
+                    class="form-input icon-input" 
+                    [(ngModel)]="registerData.username" 
+                    name="username" 
+                    placeholder="e.g. MayaLin" 
+                    required 
+                    autofocus />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="regEmail">Email Address</label>
+                <div class="input-with-icon">
+                  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                    <polyline points="22,6 12,13 2,6"></polyline>
+                  </svg>
+                  <input 
+                    id="regEmail"
+                    type="email" 
+                    class="form-input icon-input" 
+                    [(ngModel)]="registerData.email" 
+                    name="email" 
+                    placeholder="maya@example.com" 
+                    required />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="regPass">Create Password</label>
+                <div class="input-with-icon">
+                  <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                  </svg>
+                  <input 
+                    id="regPass"
+                    [type]="showPassword() ? 'text' : 'password'" 
+                    class="form-input icon-input" 
+                    [(ngModel)]="registerData.password" 
+                    name="password" 
+                    placeholder="At least 6 characters" 
+                    minlength="6" 
+                    required />
+                  <button type="button" class="pwd-toggle-btn" (click)="togglePassword()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      @if (showPassword()) {
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                        <line x1="1" y1="1" x2="23" y2="23"></line>
+                      } @else {
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                        <circle cx="12" cy="12" r="3"></circle>
+                      }
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary btn-block btn-lg" [disabled]="isLoading()">
+                @if (isLoading()) {
+                  <span class="spinner"></span> Creating Account...
+                } @else {
+                  <span>Create Account</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                    <polyline points="12 5 19 12 12 19"></polyline>
+                  </svg>
+                }
+              </button>
+            </form>
+          }
+
+          <!-- Form Footer Notice -->
+          <div class="form-footer-terms">
+            <span>By continuing, you connect to the PulseChat distributed cluster.</span>
           </div>
         </div>
       </div>
     </div>
   `,
   styles: [`
-    .auth-container {
-      position: relative;
+    .auth-split-wrapper {
       display: flex;
-      align-items: center;
-      justify-content: center;
       min-height: 100vh;
-      background: radial-gradient(circle at 50% 20%, #1e1b4b 0%, var(--bg-primary) 70%);
-      padding: 24px;
+      background-color: var(--bg-space);
+      position: relative;
       overflow: hidden;
     }
 
-    .auth-background-glow {
+    .ambient-glow {
       position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+      filter: blur(140px);
+      z-index: 0;
+    }
+
+    .glow-left {
       width: 600px;
       height: 600px;
-      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      pointer-events: none;
-      filter: blur(40px);
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, transparent 70%);
+      top: -100px;
+      left: -100px;
     }
 
-    .auth-card {
+    .glow-right {
+      width: 550px;
+      height: 550px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.15) 0%, transparent 70%);
+      bottom: -100px;
+      right: -100px;
+    }
+
+    /* LEFT BRAND SIDE */
+    .auth-brand-side {
+      flex: 1.1;
+      padding: 60px 48px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
       position: relative;
-      width: 100%;
-      max-width: 440px;
-      padding: 36px 32px;
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-lg);
       z-index: 10;
-      animation: fadeIn 0.4s ease-out;
+      border-right: 1px solid var(--border-subtle);
+      background: radial-gradient(circle at 20% 50%, rgba(23, 32, 54, 0.5) 0%, transparent 80%);
     }
 
-    .auth-header {
-      text-align: center;
-      margin-bottom: 24px;
+    .brand-side-content {
+      max-width: 520px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 36px;
     }
 
-    .logo-badge {
-      display: inline-flex;
+    .brand-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .brand-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-md);
+      background: var(--brand-gradient);
+      color: white;
+      display: flex;
       align-items: center;
       justify-content: center;
-      width: 56px;
-      height: 56px;
-      background: var(--accent-gradient);
-      border-radius: var(--radius-md);
-      color: white;
-      margin-bottom: 16px;
-      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
     }
 
-    .auth-header h1 {
-      font-size: 1.8rem;
+    .brand-title {
+      font-size: 1.6rem;
       font-weight: 800;
+      color: var(--text-white);
       letter-spacing: -0.02em;
-      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+    }
+
+    .brand-title span {
+      background: var(--brand-gradient);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
-    .subtitle {
+    .brand-statement h2 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      color: var(--text-white);
+      margin-bottom: 14px;
+    }
+
+    .brand-statement p {
+      color: var(--text-secondary);
+      font-size: 1.05rem;
+      line-height: 1.6;
+    }
+
+    /* VISUAL CARD */
+    .pulse-visual-card {
+      padding: 24px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-medium);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      box-shadow: var(--shadow-md);
+    }
+
+    .visual-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .live-beacon {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #6ee7b7;
+    }
+
+    .cluster-id {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    .visual-waveform {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 48px;
+      padding: 0 10px;
+    }
+
+    .wave-bar {
+      flex: 1;
+      background: var(--brand-gradient);
+      border-radius: 4px;
+      animation: pulse-wave 1.5s infinite ease-in-out;
+    }
+
+    .wave-bar:nth-child(1) { height: 35%; animation-delay: 0.1s; }
+    .wave-bar:nth-child(2) { height: 65%; animation-delay: 0.3s; }
+    .wave-bar:nth-child(3) { height: 95%; animation-delay: 0.5s; }
+    .wave-bar:nth-child(4) { height: 50%; animation-delay: 0.2s; }
+    .wave-bar:nth-child(5) { height: 80%; animation-delay: 0.4s; }
+    .wave-bar:nth-child(6) { height: 100%; animation-delay: 0.6s; }
+    .wave-bar:nth-child(7) { height: 45%; animation-delay: 0.25s; }
+    .wave-bar:nth-child(8) { height: 70%; animation-delay: 0.45s; }
+    .wave-bar:nth-child(9) { height: 85%; animation-delay: 0.15s; }
+    .wave-bar:nth-child(10) { height: 40%; animation-delay: 0.35s; }
+
+    .visual-features {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .feature-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: var(--radius-full);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .chip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--pulse-cyan);
+    }
+
+    .brand-footer-note {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    /* RIGHT FORM SIDE */
+    .auth-form-side {
+      flex: 1;
+      padding: 60px 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      z-index: 10;
+    }
+
+    .form-container {
+      width: 100%;
+      max-width: 440px;
+      padding: 38px 34px;
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-lg);
+      animation: fadeIn 0.4s ease-out;
+    }
+
+    .mobile-brand-header {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .form-header {
+      margin-bottom: 22px;
+    }
+
+    .form-header h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-white);
+    }
+
+    .form-subtitle {
       font-size: 0.88rem;
       color: var(--text-secondary);
       margin-top: 4px;
@@ -216,10 +526,10 @@ import { AuthService } from '../../core/auth.service';
 
     .tab-switcher {
       display: flex;
-      background: var(--bg-tertiary);
+      background: var(--bg-input);
       padding: 4px;
       border-radius: var(--radius-md);
-      margin-bottom: 24px;
+      margin-bottom: 22px;
       border: 1px solid var(--border-light);
     }
 
@@ -233,12 +543,12 @@ import { AuthService } from '../../core/auth.service';
       color: var(--text-muted);
       border-radius: var(--radius-sm);
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all var(--transition-fast);
     }
 
     .tab-btn.active {
-      background: var(--bg-card);
-      color: var(--text-primary);
+      background: var(--bg-tertiary);
+      color: var(--text-white);
       box-shadow: var(--shadow-sm);
     }
 
@@ -249,7 +559,7 @@ import { AuthService } from '../../core/auth.service';
       padding: 12px 14px;
       border-radius: var(--radius-md);
       font-size: 0.85rem;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
 
     .alert-banner.error {
@@ -258,41 +568,52 @@ import { AuthService } from '../../core/auth.service';
       color: #fca5a5;
     }
 
-    .auth-form {
+    .input-with-icon {
+      position: relative;
       display: flex;
-      flex-direction: column;
+      align-items: center;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 14px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .form-input.icon-input {
+      padding-left: 42px;
+      padding-right: 42px;
+    }
+
+    .pwd-toggle-btn {
+      position: absolute;
+      right: 12px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+    }
+
+    .pwd-toggle-btn:hover {
+      color: var(--text-primary);
     }
 
     .btn-block {
       width: 100%;
-      padding: 14px;
-      font-size: 0.95rem;
-      margin-top: 10px;
+      margin-top: 8px;
     }
 
-    .auth-footer {
-      margin-top: 28px;
+    .form-footer-terms {
+      margin-top: 24px;
       text-align: center;
-      border-top: 1px solid var(--border-light);
-      padding-top: 18px;
-    }
-
-    .feature-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.78rem;
-      font-weight: 500;
+      font-size: 0.75rem;
       color: var(--text-muted);
-    }
-
-    .pulse-indicator {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background-color: var(--status-online);
-      box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
-      animation: pulse-dot 2s infinite;
+      line-height: 1.4;
     }
 
     .spinner {
@@ -306,15 +627,19 @@ import { AuthService } from '../../core/auth.service';
       margin-right: 6px;
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
+    /* RESPONSIVE */
+    @media (max-width: 960px) {
+      .auth-brand-side { display: none; }
+      .mobile-brand-header { display: flex; }
+      .auth-form-side { padding: 40px 20px; }
     }
   `]
 })
-export class AuthComponent {
+export class AuthComponent implements OnInit {
   isLoginMode = signal<boolean>(true);
   isLoading = signal<boolean>(false);
   errorMessage = signal<string | null>(null);
+  showPassword = signal<boolean>(false);
 
   loginData = {
     usernameOrEmail: '',
@@ -329,14 +654,25 @@ export class AuthComponent {
 
   constructor(private authService: AuthService, private router: Router) {}
 
+  ngOnInit(): void {
+    // If already logged in, redirect straight to chat
+    if (this.authService.isAuthenticated()) {
+      this.router.navigate(['/chat']);
+    }
+  }
+
   setMode(isLogin: boolean): void {
     this.isLoginMode.set(isLogin);
     this.errorMessage.set(null);
   }
 
+  togglePassword(): void {
+    this.showPassword.update(v => !v);
+  }
+
   onLogin(): void {
-    if (!this.loginData.usernameOrEmail || !this.loginData.password) {
-      this.errorMessage.set('Please fill in all fields');
+    if (!this.loginData.usernameOrEmail.trim() || !this.loginData.password.trim()) {
+      this.errorMessage.set('Please fill in your username/email and password.');
       return;
     }
 
@@ -350,14 +686,19 @@ export class AuthComponent {
       },
       error: (err) => {
         this.isLoading.set(false);
-        this.errorMessage.set(err.error?.message || 'Invalid username or password');
+        this.errorMessage.set(err.error?.message || 'Invalid username/email or password.');
       }
     });
   }
 
   onRegister(): void {
-    if (!this.registerData.username || !this.registerData.email || !this.registerData.password) {
-      this.errorMessage.set('Please fill in all fields');
+    if (!this.registerData.username.trim() || !this.registerData.email.trim() || !this.registerData.password.trim()) {
+      this.errorMessage.set('Please fill in all registration fields.');
+      return;
+    }
+
+    if (this.registerData.password.length < 6) {
+      this.errorMessage.set('Password must be at least 6 characters.');
       return;
     }
 
@@ -371,7 +712,7 @@ export class AuthComponent {
       },
       error: (err) => {
         this.isLoading.set(false);
-        this.errorMessage.set(err.error?.message || 'Failed to register account');
+        this.errorMessage.set(err.error?.message || 'Failed to register account. Username or email may already exist.');
       }
     });
   }
